@@ -1,31 +1,63 @@
 <?php
 
-use CloudinaryExtension\Cloud;
 use CloudinaryExtension\CloudinaryImageProvider;
+use CloudinaryExtension\Configuration;
 use CloudinaryExtension\Image;
+use CloudinaryExtension\Image\Transformation;
 use CloudinaryExtension\Image\Transformation\Dimensions;
+use CloudinaryExtension\Image\Transformation\Crop;
+use CloudinaryExtension\UrlGenerator;
+use CloudinaryExtension\Image\ImageFactory;
 
 class Cloudinary_Cloudinary_Helper_Image extends Mage_Catalog_Helper_Image
 {
-    use Cloudinary_Cloudinary_Model_PreConditionsValidator;
-
+    /**
+     * @var CloudinaryImageProvider
+     */
     private $_imageProvider;
+
+    /**
+     * @var Dimensions
+     */
     private $_dimensions;
+
+    /**
+     * @var string
+     */
     private $_attributeName;
+
+    /**
+     * @var Configuration
+     */
     private $_configuration;
+
+    /**
+     * @var Cloudinary_Cloudinary_Helper_ImageFactory
+     */
+    private $_imageFactory;
+
+    /**
+     * @var UrlGenerator
+     */
+    private $_urlGenerator;
+
+    public function __construct()
+    {
+        $this->_configuration = Mage::getModel('cloudinary_cloudinary/configuration');
+        $this->_imageFactory = new ImageFactory(
+            $this->_configuration,
+            Mage::getModel('cloudinary_cloudinary/synchronizationChecker')
+        );
+        $this->_imageProvider = CloudinaryImageProvider::fromConfiguration($this->_configuration);
+        $this->_dimensions = Dimensions::null();
+        $this->_urlGenerator = new UrlGenerator($this->_configuration, $this->_imageProvider);
+    }
 
     public function init(Mage_Catalog_Model_Product $product, $attributeName, $imageFile = null)
     {
-        if ($this->_isEnabled()) {
-
-            $this->_configuration = $this->_getConfigHelper()->buildConfiguration();
-
-            $this->_dimensions = Dimensions::null();
+        if ($this->_configuration->isEnabled()) {
             $this->_attributeName = $attributeName;
-
-            $this->_imageProvider = CloudinaryImageProvider::fromConfiguration(
-                $this->_configuration
-            );
+            $this->_dimensions = Dimensions::null();
         }
 
         return parent::init($product, $attributeName, $imageFile);
@@ -33,40 +65,48 @@ class Cloudinary_Cloudinary_Helper_Image extends Mage_Catalog_Helper_Image
 
     public function resize($width, $height = null)
     {
-        if ($this->_imageShouldComeFromCloudinary($this->_getRequestedImageFile())) {
-            $this->_dimensions = Dimensions::fromWidthAndHeight($width, $height ?: $width);
-            return $this;
-        }
+        $this->_dimensions = Dimensions::fromWidthAndHeight($width, $height);
 
         return parent::resize($width, $height);
     }
 
+    public function getImageUrlForCategory(Mage_Catalog_Model_Category $category)
+    {
+        $imagePath = Mage::getBaseDir('media') . DS . 'catalog' . DS . 'category' . DS . $category->getImage();
+
+        $image = $this->_imageFactory->build($imagePath, array($category, 'getImageUrl'));
+
+        return $this->_urlGenerator->generateFor($image);
+    }
+
+    public function __toString()
+    {
+        $image = $this->_imageFactory->build(
+            $this->_getRequestedImageFile(),
+            function() { return parent::__toString();}
+        );
+
+        return $this->_urlGenerator->generateFor($image, $this->createTransformation());
+    }
+
+    /**
+     * @return string
+     */
     private function _getRequestedImageFile()
     {
         return $this->getImageFile() ?: $this->getProduct()->getData($this->_attributeName);
     }
 
-    public function __toString()
+    private function createTransformation()
     {
-        $result = null;
-        $imageFile = $this->_getRequestedImageFile();
-
-        if ($this->_imageShouldComeFromCloudinary($imageFile)) {
-            $image = Cloudinary_Cloudinary_Helper_Image::newApiImage($imageFile);
-
-            $transformation = $this->_configuration->getDefaultTransformation()
-                ->withDimensions($this->_dimensions);
-
-            $result = (string)$this->_imageProvider->transformImage($image, $transformation);
+        if ($this->_getModel()->getKeepFrameState()) {
+            return $this->_configuration->getDefaultTransformation()
+                ->withDimensions(Dimensions::squareMissingDimension($this->_dimensions))
+                ->withCrop(Crop::pad());
         } else {
-            $result =  parent::__toString();
+            return $this->_configuration->getDefaultTransformation()
+                ->withDimensions($this->_dimensions)
+                ->withCrop(Crop::fit());
         }
-        return $result;
     }
-
-    public static function newApiImage($path){
-        $migratedPath = Cloudinary_Cloudinary_Helper_Configuration::getInstance()->getMigratedPath($path);
-        return Image::fromPath($path, $migratedPath);
-    }
-
 }

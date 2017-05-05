@@ -45,7 +45,6 @@ class Cloudinary_Cloudinary_Model_Resource_Synchronisation_Collection
             ->where("cloudinary_synchronisation_id is null and value not in ($syncedImagesQuery)")
             ->limit($limit);
 
-        Cloudinary_Cloudinary_Model_Logger::getInstance()->debugLog(print_r($this->toArray(), true));
         return $this->getItems();
     }
 
@@ -60,5 +59,14 @@ class Cloudinary_Cloudinary_Model_Resource_Synchronisation_Collection
         $select->reset(Zend_Db_Select::COLUMNS);
         $select->where('media_gallery_value is not null');
         return $select->columns('media_gallery_value');
+    }
+
+    /**
+     * Only applicable for cms instance
+     * @return [Cloudinary_Cloudinary_Model_Synchronisation]
+     */
+    public function findOrphanedSynchronisedImages()
+    {
+        return [];
     }
 }
